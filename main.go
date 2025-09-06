@@ -8,28 +8,30 @@ import (
 	"strings"
 )
 
+const port = ":42069"
+
 func main() {
-	listener, err := net.Listen("tcp", ":42069")
+	listener, err := net.Listen("tcp", port)
 	if err != nil {
-		log.Printf("Couldn't create listener, %v", err)
+		log.Fatalf("Couldn't create listener, %v", err)
 	}
 	defer listener.Close()
-	fmt.Println("Connection was closed")
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("Couldn't accept TCP connection")
+			log.Fatalf("Couldn't accept TCP connection: %v", err)
 		}
 
 		fmt.Println("====================================")
-		fmt.Println("=== Connection Has Been Accepted ===")
+		fmt.Println("Accepted connection from:", conn.RemoteAddr())
 
 		ch := getLinesChannel(conn)
 		for line := range ch {
 			fmt.Println(line)
 		}
 		fmt.Println("Successfully finished printing lines from connection")
+		fmt.Println("Connection to:", conn.RemoteAddr(), "was closed")
 	}
 }
 

@@ -1,0 +1,6 @@
+====================================
+=== Connection Has Been Accepted ===
+Do you have what it takes to be an engineer at TheStartup™?
+
+Successfully finished printing lines from connection
+Connection was closed
