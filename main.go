@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -14,19 +15,42 @@ func main() {
 	}
 	defer file.Close()
 
-	for {
+	ch := getLinesChannel(file)
+	for line := range ch {
+		fmt.Println("read:" + line)
+	}
+
+	fmt.Println("Successfully finished reading the file")
+}
+
+func getLinesChannel(f io.ReadCloser) <-chan string {
+	ch := make(chan string)
+
+	go func() {
+		var builder strings.Builder
 		buff := make([]byte, 8)
-		n, err := file.Read(buff)
-		if err == io.EOF {
-			log.Printf("End of file reached: %v", err)
-			break
+
+		defer close(ch)
+		defer f.Close()
+
+		for {
+			n, err := f.Read(buff)
+			if err == io.EOF {
+				log.Printf("End of file reached: %v", err)
+				break
+			}
+			if err != nil {
+				log.Printf("unable to read from file: %v", err)
+			}
+
+			builder.Write(buff[:n])
 		}
-		if err != nil {
-			log.Fatalf("unable to read from file: %v", err)
+		text := builder.String()
+		lines := strings.Split(text, "\n")
+		for i := 0; i < len(lines); i++ {
+			ch <- lines[i]
 		}
 
-		snippet := string(buff[:n])
-		fmt.Printf("read: %s\n", snippet)
-	}
-	fmt.Println("Successfully finished reading the file")
+	}()
+	return ch
 }
