@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bufio"
+	"fmt"
+	"io"
 	"log"
 	"net"
+	"os"
 )
 
 func main() {
@@ -15,5 +19,26 @@ func main() {
 	if err != nil {
 		log.Fatalf("Coudn't open UDP connection: %v", err)
 	}
+	defer UDPConn.Close()
 
+	r := bufio.NewReader(os.Stdin)
+
+	for {
+		fmt.Print(">")
+		line, err := r.ReadString('\n')
+		if err != nil {
+			log.Printf("Unable to read line: %v", err)
+			continue
+		}
+		if err == io.EOF {
+			log.Printf("No more lines to read: %v", err)
+			break
+		}
+
+		_, err = UDPConn.Write([]byte(line))
+		if err != nil {
+			log.Printf("Couldn't write line to UDP connection: %v", err)
+			continue
+		}
+	}
 }
