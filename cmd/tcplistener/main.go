@@ -17,6 +17,8 @@ func main() {
 	}
 	defer listener.Close()
 
+	fmt.Println("Listening for TCP traffic on", port)
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
