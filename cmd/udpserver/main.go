@@ -15,17 +15,17 @@ func main() {
 		log.Fatalf("Couldn't resolve UDP address: %v", err)
 	}
 
-	UDPConn, err := net.DialUDP("udp", UDPAddress, nil)
+	UDPConn, err := net.DialUDP("udp", nil, UDPAddress)
 	if err != nil {
 		log.Fatalf("Coudn't open UDP connection: %v", err)
 	}
 	defer UDPConn.Close()
 
-	r := bufio.NewReader(os.Stdin)
+	reader := bufio.NewReader(os.Stdin)
 
 	for {
 		fmt.Print(">")
-		line, err := r.ReadString('\n')
+		line, err := reader.ReadString('\n')
 		if err != nil {
 			log.Printf("Unable to read line: %v", err)
 			continue
