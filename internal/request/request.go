@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"unicode"
 )
@@ -18,14 +19,22 @@ type RequestLine struct {
 	Method        string
 }
 
-func parseRequestLine(req []byte) (*RequestLine, error) {
-	reqParts := bytes.Split(req, []byte("\r\n"))
-	if len(reqParts) == 0 {
-		return nil, fmt.Errorf("couldn't find CRLF in request-line")
+func parseRequestLine(req []byte) (*RequestLine, int, error) {
+	idx := bytes.Index(req, []byte("\r\n"))
+	if idx == -1 {
+		log.Println("No SLRF found. More data needed before request can be parsed")
+		return nil, 0, nil
 	}
-	reqLine := reqParts[0]
-	reqLineParts := strings.Split(string(reqLine), " ")
+	reqLine := req[:idx]
+	parsedReqLine, err := parseRequestLineString(string(reqLine))
+	if err != nil {
+		return nil, 0, err
+	}
+	return parsedReqLine, 0, nil
+}
 
+func parseRequestLineString(reqLine string) (*RequestLine, error) {
+	reqLineParts := strings.Split(string(reqLine), " ")
 	if len(reqLineParts) < 3 {
 		return nil, fmt.Errorf("request-line missing parts: %v", reqLineParts)
 	}
@@ -55,7 +64,6 @@ func parseRequestLine(req []byte) (*RequestLine, error) {
 		RequestTarget: reqLineParts[1],
 		Method:        method,
 	}, nil
-
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
@@ -65,7 +73,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		return nil, fmt.Errorf("coudln't read from HTTP request: %w", err)
 	}
 
-	reqLine, err := parseRequestLine(req)
+	reqLine, _, err := parseRequestLine(req)
 	if err != nil {
 		return nil, fmt.Errorf("coudln't parse Request-line: %w", err)
 	}
