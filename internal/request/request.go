@@ -18,29 +18,39 @@ type RequestLine struct {
 	Method        string
 }
 
-func parseRequestLine(req []byte) (RequestLine, error) {
+func parseRequestLine(req []byte) (*RequestLine, error) {
 	reqParts := bytes.Split(req, []byte("\r\n"))
+	if len(reqParts) == 0 {
+		return nil, fmt.Errorf("couldn't find CRLF in request-line")
+	}
 	reqLine := reqParts[0]
 	reqLineParts := strings.Split(string(reqLine), " ")
 
 	if len(reqLineParts) < 3 {
-		return RequestLine{}, fmt.Errorf("Request-line missing parts")
+		return nil, fmt.Errorf("request-line missing parts: %v", reqLineParts)
 	}
 
 	method := reqLineParts[0]
 	for _, char := range method {
 		if !unicode.IsUpper(char) {
-			return RequestLine{}, fmt.Errorf("Request method is malformed")
+			return nil, fmt.Errorf("request method is malformed: %s", method)
 		}
 	}
 
 	httpVersion := reqLineParts[2]
+
 	httpVersionParts := strings.Split(httpVersion, "/")
+	if len(httpVersionParts) < 2 {
+		return nil, fmt.Errorf("malformed HTTP version: %s", httpVersionParts)
+	}
+	if httpVersionParts[0] != "HTTP" {
+		return nil, fmt.Errorf("malformed HTTP version: %s", httpVersionParts[0])
+	}
 	if httpVersionParts[1] != "1.1" {
-		return RequestLine{}, fmt.Errorf("Unsupported HTTP version")
+		return nil, fmt.Errorf("unsupported HTTP version: %s", httpVersionParts[1])
 	}
 
-	return RequestLine{
+	return &RequestLine{
 		HttpVersion:   httpVersionParts[1],
 		RequestTarget: reqLineParts[1],
 		Method:        method,
@@ -49,6 +59,7 @@ func parseRequestLine(req []byte) (RequestLine, error) {
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
+
 	req, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, fmt.Errorf("coudln't read from HTTP request: %w", err)
@@ -60,6 +71,6 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	}
 
 	return &Request{
-		RequestLine: reqLine,
+		RequestLine: *reqLine,
 	}, nil
 }
