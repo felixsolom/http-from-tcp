@@ -11,6 +11,7 @@ import (
 
 type Request struct {
 	RequestLine RequestLine
+	ParserState ParserState
 }
 
 type RequestLine struct {
@@ -19,10 +20,45 @@ type RequestLine struct {
 	Method        string
 }
 
+// "Enum" init
+type ParserState int
+
+const (
+	initialized ParserState = iota
+	done
+) // End of Enum init
+
+const crlf = "\r\n"
+const bufferSize = 8
+
+func (r *Request) parse(data []byte) (int, error) {
+	if r.ParserState == 0 {
+		reqLine, numOfBytesParsed, err := parseRequestLine(data)
+		if err != nil {
+			return 0, err
+		}
+		if numOfBytesParsed == 0 {
+			return 0, nil
+		}
+
+		if numOfBytesParsed > 0 {
+			r.RequestLine = *reqLine
+			r.ParserState = 1
+			return numOfBytesParsed, nil
+		}
+	}
+	if r.ParserState == 1 {
+		return 0, fmt.Errorf("trying to read data in done state")
+	}
+	if r.ParserState > 1 {
+		return 0, fmt.Errorf("unknown state")
+	}
+}
+
 func parseRequestLine(req []byte) (*RequestLine, int, error) {
-	idx := bytes.Index(req, []byte("\r\n"))
+	idx := bytes.Index(req, []byte(crlf))
 	if idx == -1 {
-		log.Println("No SLRF found. More data needed before request can be parsed")
+		log.Println("No CRLF found. More data needed before request can be parsed")
 		return nil, 0, nil
 	}
 	reqLine := req[:idx]
@@ -30,7 +66,7 @@ func parseRequestLine(req []byte) (*RequestLine, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	return parsedReqLine, 0, nil
+	return parsedReqLine, len(req), nil
 }
 
 func parseRequestLineString(reqLine string) (*RequestLine, error) {
@@ -67,18 +103,40 @@ func parseRequestLineString(reqLine string) (*RequestLine, error) {
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
+	buff := make([]byte, bufferSize, bufferSize)
+	readToIndex := 0
 
-	req, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("coudln't read from HTTP request: %w", err)
+	r := Request{
+		ParserState: 0,
 	}
 
-	reqLine, _, err := parseRequestLine(req)
-	if err != nil {
-		return nil, fmt.Errorf("coudln't parse Request-line: %w", err)
+	for r.ParserState != 1 {
+		n, err := reader.Read(buff)
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("couldn't read request to buffer: %w", err)
+		}
+		if err == io.EOF {
+			r.ParserState = 1
+			break
+		}
+		readToIndex += n
+
+		if readToIndex > bufferSize {
+			newBuffSize := bufferSize * 2
+			newBuff := make([]byte, newBuffSize, newBuffSize)
+			copy(newBuff, buff)
+			buff = newBuff
+		}
+
+		numOfBytesParsed, err := r.parse(buff)
+		if err != nil {
+			return nil, fmt.Errorf("couldn't parse from buffer: %w", err)
+		}
+		newBuff := make([]byte, numOfBytesParsed)
+		copy(newBuff, buff)
+		buff = newBuff
+		readToIndex -= numOfBytesParsed
 	}
 
-	return &Request{
-		RequestLine: *reqLine,
-	}, nil
+	return &r, nil
 }
