@@ -134,6 +134,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 			return nil, fmt.Errorf("couldn't parse from buffer: %w", parseErr)
 		}
 
+		// Shifting the yet unparsed data to the beginning of the buffer.
 		if numOfBytesParsed > 0 {
 			copy(buff, buff[numOfBytesParsed:readToIndex])
 			readToIndex -= numOfBytesParsed
