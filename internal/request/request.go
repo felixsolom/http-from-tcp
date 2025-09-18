@@ -2,6 +2,7 @@ package request
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -35,65 +36,103 @@ const (
 const crlf = "\r\n"
 const bufferSize = 8
 
-func (r *Request) parseSingle(data []byte) (int, error) {
-	if r.ParserState == stateParsingHeaders {
-		numOfBytesParsed, done, err := r.Headers.Parse(data)
-		if err != nil {
-			return 0, fmt.Errorf("Couldn't parse headers: %w", err)
-		}
-		if !done {
-			return numOfBytesParsed, nil
+func RequestFromReader(reader io.Reader) (*Request, error) {
+	buff := make([]byte, bufferSize)
+	readToIndex := 0
+
+	r := Request{
+		ParserState: stateInitialized,
+		Headers:     headers.NewHeaders(),
+	}
+
+	for r.ParserState != stateDone {
+		if readToIndex == len(buff) {
+			newBuff := make([]byte, len(buff)*2)
+			copy(newBuff, buff)
+			buff = newBuff
 		}
 
-		if done {
+		numOfBytesRead, err := reader.Read(buff[readToIndex:])
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				if r.ParserState != stateDone {
+					return nil, fmt.Errorf("Incomplete request, in %d, read n bytes on EOF: %d", r.ParserState, numOfBytesRead)
+				}
+				break
+			}
+			return nil, err
+		}
+		readToIndex += numOfBytesRead
+
+		if err == io.EOF && readToIndex == 0 {
 			r.ParserState = stateDone
-			return numOfBytesParsed, nil
+			break
+		}
+
+		numOfBytesParsed, parseErr := r.parse(buff[:readToIndex])
+		if parseErr != nil {
+			return nil, fmt.Errorf("couldn't parse from buffer: %w", parseErr)
+		}
+
+		// Shifting the yet unparsed data to the beginning of the buffer.
+		if numOfBytesParsed > 0 {
+			copy(buff, buff[numOfBytesParsed:readToIndex])
+			readToIndex -= numOfBytesParsed
+		}
+
+		if err == io.EOF {
+			break
 		}
 	}
-	return 0, fmt.Errorf("Can only parse headers when state is set to ParsingHeaders")
+	return &r, nil
 }
 
 func (r *Request) parse(data []byte) (int, error) {
-	if r.ParserState == stateInitialized {
-		reqLine, numOfBytesParsed, err := parseRequestLine(data)
-		if err != nil {
-			return 0, err
-		}
-		if numOfBytesParsed == 0 {
-			return 0, nil
-		}
-
-		if numOfBytesParsed > 0 {
-			r.RequestLine = *reqLine
-			r.ParserState = stateParsingHeaders
-			return numOfBytesParsed, nil
-		}
-	}
-
 	totalBytesParsed := 0
 	for r.ParserState != stateDone {
 		numOfBytesParsed, err := r.parseSingle(data[totalBytesParsed:])
 		if err != nil {
 			return 0, fmt.Errorf("couldn't parse headers: %w", err)
 		}
-		if numOfBytesParsed == 0 {
-			return totalBytesParsed, nil
-		}
+
 		totalBytesParsed += numOfBytesParsed
-
-		if r.ParserState == stateDone {
-			return totalBytesParsed, nil
+		if numOfBytesParsed == 0 {
+			break
 		}
 	}
+	return totalBytesParsed, nil
+}
 
-	if r.ParserState == stateDone {
-		return 0, fmt.Errorf("Can't parse in Done state")
-	}
+func (r *Request) parseSingle(data []byte) (int, error) {
+	switch r.ParserState {
+	case stateInitialized:
+		reqLine, numOfBytesParsed, err := parseRequestLine(data)
+		if err != nil {
+			return 0, err
+		}
+		if numOfBytesParsed == 0 {
+			//not enough data, waiting for more
+			return 0, nil
+		}
+		r.RequestLine = *reqLine
+		r.ParserState = stateParsingHeaders
+		return numOfBytesParsed, nil
 
-	if r.ParserState > stateParsingHeaders {
-		return 0, fmt.Errorf("unknown state")
+	case stateParsingHeaders:
+		numOfBytesParsed, done, err := r.Headers.Parse(data)
+		if err != nil {
+			return 0, fmt.Errorf("Couldn't parse headers: %w", err)
+		}
+
+		if done {
+			r.ParserState = stateDone
+		}
+		return numOfBytesParsed, nil
+	case stateDone:
+		return 0, fmt.Errorf("Trying to read data in Done state")
+	default:
+		return 0, fmt.Errorf("Unknown state")
 	}
-	return 0, nil
 }
 
 func parseRequestLine(req []byte) (*RequestLine, int, error) {
@@ -141,52 +180,4 @@ func parseRequestLineString(reqLine string) (*RequestLine, error) {
 		RequestTarget: reqLineParts[1],
 		Method:        method,
 	}, nil
-}
-
-func RequestFromReader(reader io.Reader) (*Request, error) {
-	buff := make([]byte, bufferSize)
-	readToIndex := 0
-
-	r := Request{
-		ParserState: stateInitialized,
-		Headers:     headers.NewHeaders(),
-	}
-
-	for r.ParserState != stateDone {
-		if readToIndex == len(buff) {
-			newBuff := make([]byte, len(buff)*2)
-			copy(newBuff, buff)
-			buff = newBuff
-		}
-
-		numOfBytesRead, err := reader.Read(buff[readToIndex:])
-		if err != nil && err != io.EOF {
-			return nil, fmt.Errorf("couldn't read request to buffer: %w", err)
-		}
-		readToIndex += numOfBytesRead
-
-		if err == io.EOF && readToIndex == 0 {
-			r.ParserState = stateDone
-			break
-		}
-
-		numOfBytesParsed, parseErr := r.parse(buff[:readToIndex])
-		if parseErr != nil {
-			return nil, fmt.Errorf("couldn't parse from buffer: %w", parseErr)
-		}
-
-		// Shifting the yet unparsed data to the beginning of the buffer.
-		if numOfBytesParsed > 0 {
-			copy(buff, buff[numOfBytesParsed:readToIndex])
-			readToIndex -= numOfBytesParsed
-		}
-
-		if err == io.EOF {
-			break
-		}
-	}
-	if r.ParserState != stateDone {
-		return nil, fmt.Errorf("unexpected EOF. Request is incomplete")
-	}
-	return &r, nil
 }
