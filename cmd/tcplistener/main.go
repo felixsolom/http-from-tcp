@@ -42,7 +42,7 @@ func main() {
 			fmt.Printf("- %s: %s\n", key, value)
 		}
 
-		fmt.Println("Successfully finished printing lines from connection")
+		fmt.Println("Successfully finished prarsing request from connection")
 		fmt.Println("Connection to:", conn.RemoteAddr(), "was closed")
 	}
 }

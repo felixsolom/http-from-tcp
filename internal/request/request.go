@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -13,9 +14,11 @@ import (
 )
 
 type Request struct {
-	RequestLine RequestLine
-	ParserState ParserState
-	Headers     headers.Headers
+	RequestLine    RequestLine
+	ParserState    ParserState
+	Headers        headers.Headers
+	Body           []byte
+	bodyLengthRead int
 }
 
 type RequestLine struct {
@@ -30,6 +33,7 @@ type ParserState int
 const (
 	stateInitialized ParserState = iota
 	stateParsingHeaders
+	stateParsingBody
 	stateDone
 ) // End of Enum init
 
@@ -43,6 +47,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	r := Request{
 		ParserState: stateInitialized,
 		Headers:     headers.NewHeaders(),
+		Body:        make([]byte, 0),
 	}
 
 	for r.ParserState != stateDone {
@@ -125,9 +130,32 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 		}
 
 		if done {
-			r.ParserState = stateDone
+			r.ParserState = stateParsingBody
 		}
 		return numOfBytesParsed, nil
+
+	case stateParsingBody:
+		contentLength, exists := r.Headers.Get("Content-Length")
+		if !exists {
+			r.ParserState = stateDone
+			return len(data), nil
+		}
+
+		expectedBodyLength, err := strconv.Atoi(strings.TrimSpace(contentLength))
+		if err != nil {
+			return 0, fmt.Errorf("Failed to covert body length to integer: %w", err)
+		}
+
+		r.Body = append(r.Body, data...)
+		r.bodyLengthRead += len(data)
+		if r.bodyLengthRead > expectedBodyLength {
+			return 0, fmt.Errorf("Body larger than its declared length")
+		}
+		if r.bodyLengthRead == expectedBodyLength {
+			r.ParserState = stateDone
+		}
+		return len(data), nil
+
 	case stateDone:
 		return 0, fmt.Errorf("Trying to read data in Done state")
 	default:

@@ -66,3 +66,11 @@ func isValidFieldName(fname string) bool {
 	}
 	return true
 }
+
+func (h Headers) Get(key string) (string, bool) {
+	value, exists := h[strings.ToLower(key)]
+	if !exists {
+		return "", false
+	}
+	return strings.ToLower(value), true
+}
