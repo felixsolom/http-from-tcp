@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 type Headers map[string]string
@@ -33,7 +34,33 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	}
 
 	fieldName := strings.TrimSpace(fieldLine[0])
+	if !isValidFieldName(fieldName) {
+		return 0, false, fmt.Errorf("Malformed field-name: %s", fieldName)
+	}
 	fieldValue := strings.TrimSpace(fieldLine[1])
-	h[fieldName] = fieldValue
+
+	//if field-name already exists in a map, we append the new value to existing one
+	if existingFieldValue, exists := h[strings.ToLower(fieldName)]; exists {
+		h[strings.ToLower(fieldName)] = existingFieldValue + ", " + fieldValue
+	} else {
+		h[strings.ToLower(fieldName)] = fieldValue
+	}
 	return idx + len(crlf), false, nil
+}
+
+func isValidFieldName(fname string) bool {
+	specialChars := "!#$%&'*+-.^_`|~"
+
+	if len(fname) < 1 {
+		return false
+	}
+
+	for _, char := range fname {
+		if !unicode.IsLetter(char) &&
+			!unicode.IsDigit(char) &&
+			!strings.ContainsRune(specialChars, char) {
+			return false
+		}
+	}
+	return true
 }
