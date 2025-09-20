@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync/atomic"
 )
 
 type Server struct {
-	Listener net.Listener
-	State    bool
+	listener net.Listener
+	closed   atomic.Bool
 }
 
 func Serve(port int) (*Server, error) {
@@ -17,34 +18,33 @@ func Serve(port int) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Coudln't start server on port: %d", port)
 	}
-	server := Server{
-		Listener: l,
-		State:    true,
+	server := &Server{
+		listener: l,
 	}
 	go server.listen()
-	return &server, nil
+	return server, nil
 }
 
 func (s *Server) Close() error {
-	err := s.Listener.Close()
+	s.closed.Store(true)
+	err := s.listener.Close()
 	if err != nil {
 		return err
 	}
-	s.State = false
 	return nil
 }
 
 func (s *Server) listen() {
-	for s.State {
+	for {
 		// Wait for a connection.
-		conn, err := s.Listener.Accept()
+		conn, err := s.listener.Accept()
 		if err != nil {
-			if s.State == false {
+			if s.closed.Load() {
 				break
 			}
+			log.Println("Accept error:", err)
 			continue
 		}
-		log.Println("Accept error:", err)
 		s.handle(conn)
 	}
 }
@@ -54,7 +54,6 @@ func (s *Server) handle(conn net.Conn) {
 		c.Write([]byte(
 			"HTTP/1.1 200 OK\r\n" +
 				"Content-Type: text/plain\r\n" +
-				"Content-Length: 13\r\n" +
 				"\r\n" +
 				"Hello World!\n",
 		))
