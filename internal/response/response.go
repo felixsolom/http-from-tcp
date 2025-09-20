@@ -52,3 +52,17 @@ func GetDefaultHeaders(contentLen int) headers.Headers {
 	h["Content-Type"] = "text/plain"
 	return h
 }
+
+func WriteHeaders(w io.Writer, headers headers.Headers) error {
+	for key, value := range headers {
+		if _, err := w.Write([]byte(
+			fmt.Sprintf("%s: %s\r\n", key, value),
+		)); err != nil {
+			return err
+		}
+	}
+	if _, err := w.Write([]byte("\r\n")); err != nil {
+		return err
+	}
+	return nil
+}

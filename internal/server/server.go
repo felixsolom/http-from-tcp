@@ -57,7 +57,6 @@ func (s *Server) handle(conn net.Conn) {
 				"\r\n" +
 				"Hello World!\n",
 		))
-		// Shut down the connection.
 		c.Close()
 	}(conn)
 }
