@@ -1,6 +1,11 @@
 package response
 
-import "io"
+import (
+	"fmt"
+	"io"
+
+	"github.com/felixsolom/http-from-tcp/internal/headers"
+)
 
 type StatusCode int
 
@@ -30,6 +35,20 @@ func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 		)); err != nil {
 			return err
 		}
+	default:
+		if _, err := w.Write([]byte(
+			"\r\n",
+		)); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func GetDefaultHeaders(contentLen int) headers.Headers {
+	h := headers.NewHeaders()
+	h["Content-Length"] = fmt.Sprint(contentLen)
+	h["Connection"] = "close"
+	h["Content-Type"] = "text/plain"
+	return h
 }
