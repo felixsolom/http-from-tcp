@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"sync/atomic"
+
+	"github.com/felixsolom/http-from-tcp/internal/response"
 )
 
 type Server struct {
@@ -51,12 +53,13 @@ func (s *Server) listen() {
 
 func (s *Server) handle(conn net.Conn) {
 	go func(c net.Conn) {
-		c.Write([]byte(
-			"HTTP/1.1 200 OK\r\n" +
-				"Content-Type: text/plain\r\n" +
-				"\r\n" +
-				"Hello World!\n",
-		))
+		if err := response.WriteStatusLine(c, 200); err != nil {
+			fmt.Printf("Couldn't write status line: %v", err)
+		}
+		headers := response.GetDefaultHeaders(0)
+		if err := response.WriteHeaders(c, headers); err != nil {
+			fmt.Printf("Couldn't write headers to response: %v", err)
+		}
 		c.Close()
 	}(conn)
 }

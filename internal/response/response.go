@@ -37,7 +37,7 @@ func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 		}
 	default:
 		if _, err := w.Write([]byte(
-			"\r\n",
+			"HTTP/1.1 \r\n",
 		)); err != nil {
 			return err
 		}
