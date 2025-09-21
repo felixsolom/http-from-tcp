@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"sync/atomic"
@@ -14,6 +16,13 @@ type Server struct {
 	listener net.Listener
 	closed   atomic.Bool
 	handler  Handler
+}
+
+func (he HandlerError) Write(w io.Writer) {
+	response.WriteStatusLine(w, he.StatusCode)
+	messageBytes := []byte(he.Message)
+	response.WriteHeaders(w, response.GetDefaultHeaders(len(messageBytes)))
+	w.Write(messageBytes)
 }
 
 func Serve(port int, handler Handler) (*Server, error) {
@@ -56,35 +65,27 @@ func (s *Server) listen() {
 
 func (s *Server) handle(conn net.Conn) {
 	go func(c net.Conn) {
-		defer c.Close()
 		//parsing request from the connection
 		req, err := request.RequestFromReader(c)
 		if err != nil {
-			log.Printf("Couldn't get request-line from reader: %v", err)
-
-			if err := response.WriteStatusLine(c, response.BadRequest); err != nil {
-				log.Printf("Couldn't write status line: %v", err)
+			hErr := &HandlerError{
+				StatusCode: response.BadRequest,
+				Message:    err.Error(),
 			}
-			if err := response.WriteHeaders(c, response.GetDefaultHeaders(0)); err != nil {
-				log.Printf("Couldn't write headers: %v", err)
-			}
+			hErr.Write(c)
+			return
 		}
 		//writing response
-		if handlerErr := s.handler(c, req); handlerErr != nil {
-			log.Printf("Handler error: %s", handlerErr.Message)
-
-			if err := response.WriteStatusLine(c, handlerErr.StatusCode); err != nil {
-				log.Printf("Couldn't write status line: %v", err)
-			}
-			body := handlerErr.Message
-			headers := response.GetDefaultHeaders(len(body))
-			if err := response.WriteHeaders(c, headers); err != nil {
-				log.Printf("Couldn't write headers: %v", err)
-			}
-			if _, err := c.Write([]byte(body)); err != nil {
-				log.Printf("Coudln't write response body: %v", err)
-			}
+		buf := bytes.NewBuffer([]byte{})
+		hErr := s.handler(buf, req)
+		if hErr != nil {
+			hErr.Write(c)
+			return
 		}
+		b := buf.Bytes()
+		response.WriteStatusLine(c, response.OK)
+		response.WriteHeaders(c, response.GetDefaultHeaders(len(b)))
+		c.Write(b)
 		c.Close()
 	}(conn)
 }
