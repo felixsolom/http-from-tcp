@@ -13,3 +13,10 @@ type HandlerError struct {
 	StatusCode response.StatusCode
 	Message    string
 }
+
+func (h Handler) WriteHandlerError(w io.Writer, message string, status response.StatusCode) *HandlerError {
+	return &HandlerError{
+		StatusCode: status,
+		Message:    message,
+	}
+}

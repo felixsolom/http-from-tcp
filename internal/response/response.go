@@ -1,6 +1,7 @@
 package response
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 
@@ -65,4 +66,12 @@ func WriteHeaders(w io.Writer, headers headers.Headers) error {
 		return err
 	}
 	return nil
+}
+
+func WriteBody(buff bytes.Buffer, content string) (bytes.Buffer, int, error) {
+	n, err := buff.WriteString(content)
+	if err != nil {
+		return bytes.Buffer{}, 0, err
+	}
+	return buff, n, nil
 }

@@ -6,15 +6,17 @@ import (
 	"net"
 	"sync/atomic"
 
+	"github.com/felixsolom/http-from-tcp/internal/request"
 	"github.com/felixsolom/http-from-tcp/internal/response"
 )
 
 type Server struct {
 	listener net.Listener
 	closed   atomic.Bool
+	handler  Handler
 }
 
-func Serve(port int) (*Server, error) {
+func Serve(port int, handler Handler) (*Server, error) {
 	portStr := fmt.Sprintf(":%d", port)
 	l, err := net.Listen("tcp", portStr)
 	if err != nil {
@@ -22,6 +24,7 @@ func Serve(port int) (*Server, error) {
 	}
 	server := &Server{
 		listener: l,
+		handler:  handler,
 	}
 	go server.listen()
 	return server, nil
@@ -53,12 +56,34 @@ func (s *Server) listen() {
 
 func (s *Server) handle(conn net.Conn) {
 	go func(c net.Conn) {
-		if err := response.WriteStatusLine(c, 200); err != nil {
-			fmt.Printf("Couldn't write status line: %v", err)
+		defer c.Close()
+		//parsing request from the connection
+		req, err := request.RequestFromReader(c)
+		if err != nil {
+			log.Printf("Couldn't get request-line from reader: %v", err)
+
+			if err := response.WriteStatusLine(c, response.BadRequest); err != nil {
+				log.Printf("Couldn't write status line: %v", err)
+			}
+			if err := response.WriteHeaders(c, response.GetDefaultHeaders(0)); err != nil {
+				log.Printf("Couldn't write headers: %v", err)
+			}
 		}
-		headers := response.GetDefaultHeaders(0)
-		if err := response.WriteHeaders(c, headers); err != nil {
-			fmt.Printf("Couldn't write headers to response: %v", err)
+		//writing response
+		if handlerErr := s.handler(c, req); handlerErr != nil {
+			log.Printf("Handler error: %s", handlerErr.Message)
+
+			if err := response.WriteStatusLine(c, handlerErr.StatusCode); err != nil {
+				log.Printf("Couldn't write status line: %v", err)
+			}
+			body := handlerErr.Message
+			headers := response.GetDefaultHeaders(len(body))
+			if err := response.WriteHeaders(c, headers); err != nil {
+				log.Printf("Couldn't write headers: %v", err)
+			}
+			if _, err := c.Write([]byte(body)); err != nil {
+				log.Printf("Coudln't write response body: %v", err)
+			}
 		}
 		c.Close()
 	}(conn)
