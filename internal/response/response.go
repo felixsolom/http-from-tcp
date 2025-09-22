@@ -8,6 +8,28 @@ import (
 	"github.com/felixsolom/http-from-tcp/internal/headers"
 )
 
+type Writer struct {
+	StatusLine  StatusLine
+	Headers     headers.Headers
+	body        []byte
+	writerState writerState
+}
+
+type StatusLine struct {
+	StatusCode   StatusCode
+	ReasonPhrase string
+	HttpVersion  string
+}
+
+type writerState int
+
+const (
+	writerInitialized writerState = iota
+	writerWritingHeaders
+	writerWritingBody
+	writerDone
+)
+
 type StatusCode int
 
 const (
