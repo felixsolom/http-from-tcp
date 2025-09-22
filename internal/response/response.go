@@ -38,6 +38,33 @@ const (
 	InternalServerError StatusCode = 500
 )
 
+func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
+	if w.writerState == writerDone {
+		return fmt.Errorf("Can't write Status-Line in Done state")
+	}
+	w.writerState = writerInitialized
+	switch statusCode {
+	case 200:
+		w.StatusLine.HttpVersion = "1.1"
+		w.StatusLine.StatusCode = 200
+		w.StatusLine.ReasonPhrase = "OK"
+	case 400:
+		w.StatusLine.HttpVersion = "1.1"
+		w.StatusLine.StatusCode = 400
+		w.StatusLine.ReasonPhrase = "Bad Request"
+	case 500:
+		w.StatusLine.HttpVersion = "1.1"
+		w.StatusLine.StatusCode = 500
+		w.StatusLine.ReasonPhrase = "Internal Server Error"
+	default:
+		w.StatusLine.HttpVersion = "1.1"
+		w.StatusLine.StatusCode = 400
+		w.StatusLine.ReasonPhrase = "Bad Request"
+	}
+	w.writerState = writerWritingHeaders
+	return nil
+}
+
 func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 	switch statusCode {
 	case 200:
