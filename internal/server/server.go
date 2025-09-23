@@ -1,9 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"sync/atomic"
@@ -16,13 +14,6 @@ type Server struct {
 	listener net.Listener
 	closed   atomic.Bool
 	handler  Handler
-}
-
-func (he HandlerError) Write(w io.Writer) {
-	response.WriteStatusLine(w, he.StatusCode)
-	messageBytes := []byte(he.Message)
-	response.WriteHeaders(w, response.GetDefaultHeaders(len(messageBytes)))
-	w.Write(messageBytes)
 }
 
 func Serve(port int, handler Handler) (*Server, error) {
@@ -65,27 +56,36 @@ func (s *Server) listen() {
 
 func (s *Server) handle(conn net.Conn) {
 	go func(c net.Conn) {
+		defer c.Close()
 		//parsing request from the connection
 		req, err := request.RequestFromReader(c)
 		if err != nil {
-			hErr := &HandlerError{
-				StatusCode: response.BadRequest,
-				Message:    err.Error(),
+			rw := response.NewWriter()
+			rw.WriteStatusLine(response.BadRequest)
+			rw.WriteHeaders(response.GetDefaultHeaders(0, "text/html"))
+			if err := rw.Flush(c); err != nil {
+				log.Printf("Couldn't flush error response: %v", err)
 			}
-			hErr.Write(c)
 			return
 		}
+
 		//writing response
-		buf := bytes.NewBuffer([]byte{})
-		hErr := s.handler(buf, req)
-		if hErr != nil {
-			hErr.Write(c)
+		rw := response.NewWriter()
+		if hErr := s.handler(rw, req); hErr != nil {
+			log.Printf("handler error: %s", hErr.Message)
+			errorRw := response.NewWriter()
+			errorRw.WriteStatusLine(hErr.StatusCode)
+			body := []byte(hErr.Message)
+			errorRw.WriteHeaders(response.GetDefaultHeaders(len(body), "text/html"))
+			errorRw.WriteBody(body)
+			if err := errorRw.Flush(c); err != nil {
+				log.Printf("Couldn't flush error response: %v", err)
+			}
 			return
 		}
-		b := buf.Bytes()
-		response.WriteStatusLine(c, response.OK)
-		response.WriteHeaders(c, response.GetDefaultHeaders(len(b)))
-		c.Write(b)
-		c.Close()
+
+		if err := rw.Flush(c); err != nil {
+			log.Printf("Couldn't flush response: %v", err)
+		}
 	}(conn)
 }

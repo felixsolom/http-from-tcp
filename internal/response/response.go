@@ -1,12 +1,18 @@
 package response
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 
 	"github.com/felixsolom/http-from-tcp/internal/headers"
 )
+
+func NewWriter() *Writer {
+	return &Writer{
+		Headers:     headers.NewHeaders(),
+		writerState: writerInitialized,
+	}
+}
 
 type Writer struct {
 	StatusLine  StatusLine
@@ -39,10 +45,9 @@ const (
 )
 
 func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
-	if w.writerState == writerDone {
-		return fmt.Errorf("Can't write Status-Line in Done state")
+	if w.writerState != writerInitialized {
+		return fmt.Errorf("Can't write Status-Line in current state")
 	}
-	w.writerState = writerInitialized
 	switch statusCode {
 	case 200:
 		w.StatusLine.HttpVersion = "1.1"
@@ -65,62 +70,57 @@ func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
 	return nil
 }
 
-func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
-	switch statusCode {
-	case 200:
-		if _, err := w.Write([]byte(
-			"HTTP/1.1 200 OK\r\n",
-		)); err != nil {
-			return err
-		}
-	case 400:
-		if _, err := w.Write([]byte(
-			"HTTP/1.1 400 Bad Request\r\n",
-		)); err != nil {
-			return err
-		}
-	case 500:
-		if _, err := w.Write([]byte(
-			"HTTP/1.1 500 Internal Server Error\r\n",
-		)); err != nil {
-			return err
-		}
-	default:
-		if _, err := w.Write([]byte(
-			"HTTP/1.1 \r\n",
-		)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func GetDefaultHeaders(contentLen int) headers.Headers {
+func GetDefaultHeaders(contentLen int, contentType string) headers.Headers {
 	h := headers.NewHeaders()
 	h["Content-Length"] = fmt.Sprint(contentLen)
 	h["Connection"] = "close"
-	h["Content-Type"] = "text/plain"
+	h["Content-Type"] = contentType
 	return h
 }
 
-func WriteHeaders(w io.Writer, headers headers.Headers) error {
+func (w *Writer) WriteHeaders(headers headers.Headers) error {
+	if w.writerState != writerWritingHeaders {
+		return fmt.Errorf("Can't write Headers in current state")
+	}
 	for key, value := range headers {
-		if _, err := w.Write([]byte(
-			fmt.Sprintf("%s: %s\r\n", key, value),
-		)); err != nil {
-			return err
-		}
+		w.Headers[key] = value
 	}
-	if _, err := w.Write([]byte("\r\n")); err != nil {
-		return err
-	}
+
+	w.writerState = writerWritingBody
 	return nil
 }
 
-func WriteBody(buff bytes.Buffer, content string) (bytes.Buffer, int, error) {
-	n, err := buff.WriteString(content)
-	if err != nil {
-		return bytes.Buffer{}, 0, err
+func (w *Writer) WriteBody(p []byte) (int, error) {
+	if w.writerState != writerWritingBody {
+		return 0, fmt.Errorf("Can't write body in current state")
 	}
-	return buff, n, nil
+	w.body = append(w.body, p...)
+	return len(p), nil
+}
+
+func (w *Writer) Flush(writer io.Writer) error {
+	if w.writerState == writerDone {
+		return fmt.Errorf("Can't flush a response that is already written")
+	}
+	statusLine := fmt.Sprintf("HTTP/%s %d %s\r\n", w.StatusLine.HttpVersion, w.StatusLine.StatusCode, w.StatusLine.ReasonPhrase)
+	if _, err := writer.Write([]byte(statusLine)); err != nil {
+		return fmt.Errorf("Couldn'flush status line: %v", err)
+	}
+
+	for key, value := range w.Headers {
+		header := fmt.Sprintf("%s: %s\r\n", key, value)
+		if _, err := writer.Write([]byte(header)); err != nil {
+			return fmt.Errorf("Couldn't flush one of the headers: %v", err)
+		}
+	}
+
+	if _, err := writer.Write([]byte("\r\n")); err != nil {
+		return fmt.Errorf("Couldn't flush end header: %v", err)
+	}
+
+	if _, err := writer.Write(w.body); err != nil {
+		return fmt.Errorf("Couldn't flush body: %v", err)
+	}
+	w.writerState = writerDone
+	return nil
 }
