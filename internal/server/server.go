@@ -10,6 +10,8 @@ import (
 	"github.com/felixsolom/http-from-tcp/internal/response"
 )
 
+type Handler func(w *response.Writer, req *request.Request)
+
 type Server struct {
 	listener net.Listener
 	closed   atomic.Bool
@@ -57,35 +59,15 @@ func (s *Server) listen() {
 func (s *Server) handle(conn net.Conn) {
 	go func(c net.Conn) {
 		defer c.Close()
-		//parsing request from the connection
+		w := response.NewWriter(c)
 		req, err := request.RequestFromReader(c)
 		if err != nil {
-			rw := response.NewWriter()
-			rw.WriteStatusLine(response.BadRequest)
-			rw.WriteHeaders(response.GetDefaultHeaders(0, "text/html"))
-			if err := rw.Flush(c); err != nil {
-				log.Printf("Couldn't flush error response: %v", err)
-			}
+			w.WriteStatusLine(response.BadRequest)
+			body := []byte(fmt.Sprintf("error parsing request: %v", err))
+			w.WriteHeaders(response.GetDefaultHeaders(len(body)))
+			w.WriteBody(body)
 			return
 		}
-
-		//writing response
-		rw := response.NewWriter()
-		if hErr := s.handler(rw, req); hErr != nil {
-			log.Printf("handler error: %s", hErr.Message)
-			errorRw := response.NewWriter()
-			errorRw.WriteStatusLine(hErr.StatusCode)
-			body := []byte(hErr.Message)
-			errorRw.WriteHeaders(response.GetDefaultHeaders(len(body), "text/html"))
-			errorRw.WriteBody(body)
-			if err := errorRw.Flush(c); err != nil {
-				log.Printf("Couldn't flush error response: %v", err)
-			}
-			return
-		}
-
-		if err := rw.Flush(c); err != nil {
-			log.Printf("Couldn't flush response: %v", err)
-		}
+		s.handler(w, req)
 	}(conn)
 }

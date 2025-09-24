@@ -74,3 +74,8 @@ func (h Headers) Get(key string) (string, bool) {
 	}
 	return strings.ToLower(value), true
 }
+
+func (h Headers) Override(key, value string) {
+	key = strings.ToLower(key)
+	h[key] = value
+}
