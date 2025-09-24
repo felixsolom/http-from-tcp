@@ -58,3 +58,29 @@ func (w *Writer) WriteBody(p []byte) (int, error) {
 	}
 	return w.writer.Write(p)
 }
+
+func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
+	if w.writerState != writerStateBody {
+		return 0, fmt.Errorf("cannot write body in current state: %d", w.writerState)
+	}
+	if len(p) > 0 {
+		n, err := w.writer.Write([]byte(
+			fmt.Sprintf("%x\r\n%v\r\n", len(p), p)))
+		if err != nil {
+			return 0, err
+		}
+		return n, nil
+	}
+	return 0, nil
+}
+
+func (w *Writer) WriteChunkedBodyDone() (int, error) {
+	if w.writerState != writerStateBody {
+		return 0, fmt.Errorf("cannot write body in current state: %d", w.writerState)
+	}
+	n, err := w.writer.Write([]byte("0\r\n\r\n"))
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
