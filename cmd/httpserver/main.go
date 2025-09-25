@@ -144,20 +144,18 @@ func proxyHandler(w *response.Writer, req *request.Request) {
 				log.Printf("Couldn't write chunk to body: %v", err)
 				break
 			}
-			if err == io.EOF {
-				log.Printf("reached EOF")
-				break
-			}
-			go func() { log.Printf("%d\n", n) }()
-		}
-		if err != nil && err != io.EOF {
-			log.Printf("Coudn't read response body: %v", err)
-			break
+			go func() { log.Printf("read: %d bytes\n", n) }()
 		}
 		if err == io.EOF {
 			log.Printf("reached EOF")
 			break
 		}
+
+		if err != nil {
+			log.Printf("Coudn't read response body: %v", err)
+			break
+		}
+
 	}
 	if _, err = w.WriteChunkedBodyDone(); err != nil {
 		log.Printf("Couldn't write end chunk to response: %v", err)

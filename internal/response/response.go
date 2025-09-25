@@ -12,6 +12,7 @@ type writerState int
 const (
 	writerStateStatusLine writerState = iota
 	writerStateHeaders
+	writerStateTrailers
 	writerStateBody
 )
 
@@ -41,6 +42,21 @@ func (w *Writer) WriteHeaders(headers headers.Headers) error {
 		return fmt.Errorf("cannot write headers in state: %d", w.writerState)
 	}
 
+	defer func() { w.writerState = writerStateTrailers }()
+	for key, value := range headers {
+		_, err := w.writer.Write([]byte(fmt.Sprintf("%s: %s\r\n", key, value)))
+		if err != nil {
+			return nil
+		}
+	}
+	_, err := w.writer.Write([]byte("\r\n"))
+	return err
+}
+
+func (w *Writer) WriteTrailers(headers headers.Headers) error {
+	if w.writerState != writerStateTrailers {
+		return fmt.Errorf("cannot write trailers in state: %d", w.writerState)
+	}
 	defer func() { w.writerState = writerStateBody }()
 	for key, value := range headers {
 		_, err := w.writer.Write([]byte(fmt.Sprintf("%s: %s\r\n", key, value)))
