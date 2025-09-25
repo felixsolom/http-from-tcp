@@ -2,8 +2,10 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/felixsolom/http-from-tcp/internal/request"
@@ -28,6 +30,9 @@ func main() {
 }
 
 func handler(w *response.Writer, req *request.Request) {
+	if req.RequestLine.RequestTarget == "/httpbin/x" {
+		proxyHandler(w, req)
+	}
 	if req.RequestLine.RequestTarget == "/yourproblem" {
 		handler400(w, req)
 		return
@@ -101,4 +106,47 @@ func handler200(w *response.Writer, _ *request.Request) {
 	w.WriteHeaders(h)
 	w.WriteBody(body)
 	return
+}
+
+func proxyHandler(w *response.Writer, req *request.Request) {
+	if strings.HasPrefix(req.RequestLine.RequestTarget, "http:/") {
+		strings.CutPrefix(req.RequestLine.RequestTarget, "http:/")
+	}
+	res, err := http.Get("https://httpbin.org/x")
+	if err != nil {
+		log.Printf("Couldn't get a response from http_bin: %w", err)
+		return
+	}
+
+	for {
+		buf := make([]byte, 1024)
+		n, err := res.Body.Read(buf)
+		if err != nil {
+			log.Printf("Coudn't read response body: %v", err)
+			return
+		}
+
+		numWritten, err := w.WriteChunkedBody(buf)
+		if err != nil {
+			log.Printf("Couldn't write chunk to body: %v", err)
+			return
+		}
+
+		if n != numWritten {
+			log.Printf("Couldn't write all the chunk in buffer")
+			continue
+		}
+
+		if n == 0 {
+			_, err := w.WriteChunkedBodyDone()
+			if err != nil {
+				log.Printf("Couldn't write end chunk to response: %v", err)
+				return
+			}
+			break
+		}
+		defer res.Body.Close()
+		log.Printf("%d\n", n)
+	}
+
 }
