@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -31,8 +31,9 @@ func main() {
 }
 
 func handler(w *response.Writer, req *request.Request) {
-	if req.RequestLine.RequestTarget == "https://httpbin.org/stream/100" {
+	if strings.HasPrefix(req.RequestLine.RequestTarget, "/httpbin/") {
 		proxyHandler(w, req)
+		return
 	}
 	if req.RequestLine.RequestTarget == "/yourproblem" {
 		handler400(w, req)
@@ -110,49 +111,56 @@ func handler200(w *response.Writer, _ *request.Request) {
 }
 
 func proxyHandler(w *response.Writer, req *request.Request) {
-	if strings.HasPrefix(req.RequestLine.RequestTarget, "http:/") {
-		strings.CutPrefix(req.RequestLine.RequestTarget, "http:/")
+	proxyPrefex := "/httpbin/"
+	targetServer := "https://httpbin.org/"
+
+	if !strings.HasPrefix(req.RequestLine.RequestTarget, proxyPrefex) {
+		handler400(w, req)
+		return
 	}
-	res, err := http.Get("https://httpbin.org/stream/100")
+	targetURL := targetServer + strings.TrimPrefix(req.RequestLine.RequestTarget, proxyPrefex)
+	proxyRes, err := http.Get(targetURL)
 	if err != nil {
 		log.Printf("Couldn't get a response from http_bin: %v", err)
 		return
 	}
+	defer proxyRes.Body.Close()
 
+	w.WriteStatusLine(response.StatusCode(proxyRes.StatusCode))
 	h := response.GetDefaultHeaders(0)
-	delete(h, fmt.Sprint(strings.ToLower("Content-Length")))
+	for key, value := range proxyRes.Header {
+		h.Set(key, strings.Join(value, ","))
+	}
+	delete(h, "Content-Length")
 	h.Set("Transfer-Encoding", "chunked")
 	w.WriteHeaders(h)
 
 	for {
 		buf := make([]byte, 1024)
-		n, err := res.Body.Read(buf)
-		if err != nil {
-			log.Printf("Coudn't read response body: %v", err)
-			return
-		}
-
-		numWritten, err := w.WriteChunkedBody(buf)
-		if err != nil {
-			log.Printf("Couldn't write chunk to body: %v", err)
-			return
-		}
-
-		if n != numWritten {
-			log.Printf("Couldn't write all the chunk in buffer")
-			continue
-		}
-
-		if n == 0 {
-			_, err := w.WriteChunkedBodyDone()
+		n, err := proxyRes.Body.Read(buf)
+		if n > 0 {
+			_, err = w.WriteChunkedBody(buf[:n])
 			if err != nil {
-				log.Printf("Couldn't write end chunk to response: %v", err)
-				return
+				log.Printf("Couldn't write chunk to body: %v", err)
+				break
 			}
+			if err == io.EOF {
+				log.Printf("reached EOF")
+				break
+			}
+			go func() { log.Printf("%d\n", n) }()
+		}
+		if err != nil && err != io.EOF {
+			log.Printf("Coudn't read response body: %v", err)
 			break
 		}
-		defer res.Body.Close()
-		log.Printf("%d\n", n)
+		if err == io.EOF {
+			log.Printf("reached EOF")
+			break
+		}
 	}
-
+	if _, err = w.WriteChunkedBodyDone(); err != nil {
+		log.Printf("Couldn't write end chunk to response: %v", err)
+	}
+	log.Printf("finished writing to response body")
 }
