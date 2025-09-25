@@ -79,3 +79,7 @@ func (h Headers) Override(key, value string) {
 	key = strings.ToLower(key)
 	h[key] = value
 }
+
+func (h Headers) Set(key, value string) {
+	h[key] = value
+}

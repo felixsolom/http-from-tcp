@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -30,7 +31,7 @@ func main() {
 }
 
 func handler(w *response.Writer, req *request.Request) {
-	if req.RequestLine.RequestTarget == "/httpbin/x" {
+	if req.RequestLine.RequestTarget == "https://httpbin.org/stream/100" {
 		proxyHandler(w, req)
 	}
 	if req.RequestLine.RequestTarget == "/yourproblem" {
@@ -112,11 +113,16 @@ func proxyHandler(w *response.Writer, req *request.Request) {
 	if strings.HasPrefix(req.RequestLine.RequestTarget, "http:/") {
 		strings.CutPrefix(req.RequestLine.RequestTarget, "http:/")
 	}
-	res, err := http.Get("https://httpbin.org/x")
+	res, err := http.Get("https://httpbin.org/stream/100")
 	if err != nil {
-		log.Printf("Couldn't get a response from http_bin: %w", err)
+		log.Printf("Couldn't get a response from http_bin: %v", err)
 		return
 	}
+
+	h := response.GetDefaultHeaders(0)
+	delete(h, fmt.Sprint(strings.ToLower("Content-Length")))
+	h.Set("Transfer-Encoding", "chunked")
+	w.WriteHeaders(h)
 
 	for {
 		buf := make([]byte, 1024)
