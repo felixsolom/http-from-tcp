@@ -12,8 +12,8 @@ type writerState int
 const (
 	writerStateStatusLine writerState = iota
 	writerStateHeaders
-	writerStateTrailers
 	writerStateBody
+	writerStateTrailers
 )
 
 type Writer struct {
@@ -32,6 +32,7 @@ func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
 	if w.writerState != writerStateStatusLine {
 		return fmt.Errorf("cannot write status line in state: %d", w.writerState)
 	}
+
 	defer func() { w.writerState = writerStateHeaders }()
 	_, err := w.writer.Write(getStatusLine(statusCode))
 	return err
@@ -42,7 +43,7 @@ func (w *Writer) WriteHeaders(headers headers.Headers) error {
 		return fmt.Errorf("cannot write headers in state: %d", w.writerState)
 	}
 
-	defer func() { w.writerState = writerStateTrailers }()
+	defer func() { w.writerState = writerStateBody }()
 	for key, value := range headers {
 		_, err := w.writer.Write([]byte(fmt.Sprintf("%s: %s\r\n", key, value)))
 		if err != nil {
@@ -53,12 +54,11 @@ func (w *Writer) WriteHeaders(headers headers.Headers) error {
 	return err
 }
 
-func (w *Writer) WriteTrailers(headers headers.Headers) error {
+func (w *Writer) WriteTrailers(t headers.Headers) error {
 	if w.writerState != writerStateTrailers {
 		return fmt.Errorf("cannot write trailers in state: %d", w.writerState)
 	}
-	defer func() { w.writerState = writerStateBody }()
-	for key, value := range headers {
+	for key, value := range t {
 		_, err := w.writer.Write([]byte(fmt.Sprintf("%s: %s\r\n", key, value)))
 		if err != nil {
 			return nil
@@ -72,6 +72,7 @@ func (w *Writer) WriteBody(p []byte) (int, error) {
 	if w.writerState != writerStateBody {
 		return 0, fmt.Errorf("cannot write body in current state: %d", w.writerState)
 	}
+	defer func() { w.writerState = writerStateTrailers }()
 	return w.writer.Write(p)
 }
 
@@ -79,6 +80,7 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 	if w.writerState != writerStateBody {
 		return 0, fmt.Errorf("cannot write body in current state: %d", w.writerState)
 	}
+
 	if len(p) > 0 {
 		n, err := w.writer.Write([]byte(
 			fmt.Sprintf("%x\r\n%s\r\n", len(p), p)))
@@ -91,10 +93,8 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 }
 
 func (w *Writer) WriteChunkedBodyDone() (int, error) {
-	if w.writerState != writerStateBody {
-		return 0, fmt.Errorf("cannot write body in current state: %d", w.writerState)
-	}
-	n, err := w.writer.Write([]byte("0\r\n\r\n"))
+	defer func() { w.writerState = writerStateTrailers }()
+	n, err := w.writer.Write([]byte("0\r\n"))
 	if err != nil {
 		return 0, err
 	}
